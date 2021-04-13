@@ -33,6 +33,7 @@ import eyed3
 import argparse
 
 
+
 def setup_config():
     '''
         read api keys from config.ini file
@@ -90,10 +91,14 @@ def improve_song_name(song):
 
         removes all numbers from beginning, then strip all punctuation marks from the string, then remove words in word_filters, then remove unwanted space
     '''
+    audiofile = eyed3.load(song)
+    tag = audiofile.tag
+    artist = tag.artist.split(";", 1)[0]
+    song = artist + ' - ' + tag.title
 
     char_filters = "()[]{}-:_/=!+\"\'"
-    word_filters = ('lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'mix',
-                    'www', 'com', 'mp3', 'audio', 'remixed', 'remix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit')
+    word_filters = ('lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'original', 'mix',
+                    'www', 'com', '.', 'mp3', 'audio', 'full', 'feat', 'version', 'music', 'hq', 'uploaded', 'explicit')
 
     reg_exp = 's/^\d\d //'
     song = song.strip()
@@ -108,6 +113,9 @@ def improve_song_name(song):
 
     song = ' '.join(song.split()).strip()
 
+    print(song)
+
+
     return song
 
 
@@ -118,44 +126,6 @@ def get_song_name(title, artist):
 
     return title + ' - ' + artist
 
-
-def get_lyrics_genius(song_name):
-    '''
-        calls genius.com api for getting the url of the song lyrics page then scrapes that page to fetch the lyrics
-    '''
-
-    GENIUS_KEY = "iazjdOEEunvS_XOXhmJTcUzOsvrEjaNIftCKj7PLrgZjjWXiFTeoNHVmwYRDMkx9"
-    base_url = "https://api.genius.com"
-    headers = {'Authorization': 'Bearer %s' % (GENIUS_KEY)}
-    search_url = base_url + "/search"
-    data = {'q': song_name}
-
-    response = requests.get(search_url, data=data, headers=headers)
-    json = response.json()
-
-    try:
-        song_info = json['response']['hits'][0]['result']['api_path']
-    except KeyError:
-        print("Could not find lyrics for " + song_name)
-        return None
-    except IndexError:
-        print("Could not find lyrics for " + song_name)
-        return None
-
-    song_url = base_url + song_info
-    response = requests.get(song_url, headers=headers)
-    json = response.json()
-    song_path = json['response']['song']['path']
-    song_url = "http://genius.com" + song_path
-    page = requests.get(song_url)
-    html = BeautifulSoup(page.text, "html.parser")
-
-    # remove script tags that they put in the middle of the lyrics
-    [h.extract() for h in html('script')]
-
-    lyrics = html.find("div", class_="lyrics").get_text()
-    lyrics.replace('\n', ' ')
-    return lyrics
 
 
 def get_metadata_spotify(spotify, song_name):
@@ -180,13 +150,20 @@ def get_metadata_spotify(spotify, song_name):
     album_meta_tags = spotify.album(album_id)
 
     metadata['release_date'] = album_meta_tags['release_date']
+
+    print(album_meta_tags['genres'])
+    
     try:
         metadata['genre'] = titlecase(album_meta_tags['genres'][0])
+        #genre = "; ".join((album_meta_tags['genres']))
+        #metadata['genre'] = titlecase(genre)
     except IndexError:
         try:
             artist_id = meta_tags['artists'][0]['id']
             artist_meta_tags = spotify.artist(artist_id)
-            metadata['genre'] = titlecase(artist_meta_tags['genres'][0])
+            #metadata['genre'] = titlecase(artist_meta_tags['genres'][0])
+            genre = "; ".join((artist_meta_tags['genres']))
+            metadata['genre'] = titlecase(genre)
 
         except IndexError:
             print("song genre could not be found.")
@@ -195,13 +172,6 @@ def get_metadata_spotify(spotify, song_name):
     metadata['track_num'] = meta_tags['track_number']
     metadata['disc_num'] = meta_tags['disc_number']
 
-    metadata['albumart'] = meta_tags['album']['images'][0]['url']
-
-    lyrics = get_lyrics_genius(get_song_name(
-        metadata['title'], metadata['artist']))
-
-    if lyrics is not None:
-        metadata['lyrics'] = lyrics
 
     print()
     return metadata
@@ -227,19 +197,12 @@ def set_metadata(file_name, metadata):
     tag = audiofile.tag
 
     if 'genre' in metadata:
-        tag.genre = metadata['genre']
-
-    if 'lyrics' in metadata:
-        tag.lyrics.set(metadata['lyrics'])
-
-    img = requests.get(
-        metadata['albumart'], stream=True)
-    img = img.raw
-
-    albumart = img.read()
-    tag.images.set(3, albumart, 'image/jpeg')
+        #tag.genre = metadata['genre']
+        #tag.comments.set = metadata['genre']
+        tag.comments.set(metadata['genre'])
 
     tag.save(version=(2, 3, 0))
+    #tag.save()
 
     # if not norename:
     #     song_title = rename_format.format(
@@ -274,19 +237,21 @@ def fix_music_file(spotify, file_name, norename, rename_format):
         rename_file = rename_to_format(
             file_name, norename, rename_format, metadata)
 
-        shutil.move(rename_file, 'Music')
+        shutil.move(rename_file, 'Organized')
         return is_improvemet_needed
 
 
 def rename_to_format(file_name, norename, rename_format, metadata):
-    if not norename:
-        song_title = rename_format.format(
-            title=metadata['title'] + ' -',
-            artist=metadata['artist'] + ' -',
-            album=metadata['album'] + ' -')
+    # if not norename:
+    #     song_title = rename_format.format(
+    #         title=metadata['title'] + ' -',
+    #         artist=metadata['artist'] + ' -',
+    #         album=metadata['album'] + ' -')
 
-    song_title = song_title[:-1] if song_title.endswith('-') else song_title
-    song_title = ' '.join(song_title.split()).strip()
+    # song_title = song_title[:-1] if song_title.endswith('-') else song_title
+    # song_title = ' '.join(song_title.split()).strip()
+
+    song_title = file_name
 
     print("renaming " + file_name + "to " + song_title)
     new_path = path.dirname(file_name) + '{}.mp3'.format(song_title)
@@ -364,8 +329,8 @@ def main():
 
     elif repair_directory:
         chdir(repair_directory or '.')
-        if not os.path.exists("Music"):
-            os.makedirs("Music")
+        if not os.path.exists("Organized"):
+            os.makedirs("Organized")
         files = list_files()
         need_to_improve = fix_music_files(
             spotify, files, norename, rename_format)
